@@ -171,10 +171,14 @@ class SFC_Matrix {
 
     /** Enqueue the next CREATE page after a stable raw-row cursor. */
     private static function create_run(){
-        global $wpdb;$snapshot=array();$ctx=self::context();
-        foreach($ctx['products'] as $p)foreach(array('uk','ru') as $lang){$snapshot[]=array('product',$p->ID,0,$lang);foreach($ctx['cities'] as $c)$snapshot[]=array('product_city',$p->ID,$c->ID,$lang);}
-        foreach($ctx['regions'] as $r)foreach(array('uk','ru') as $lang)$snapshot[]=array('region',$r->ID,0,$lang);
-        foreach($ctx['cities'] as $c)foreach(array('uk','ru') as $lang)$snapshot[]=array('city',$c->ID,0,$lang);
+        global $wpdb;
+        $snapshot=array(
+            'version'=>2,
+            'products'=>array_map('intval',get_posts(array('post_type'=>'sf_product','post_status'=>array('publish','draft'),'posts_per_page'=>-1,'orderby'=>'menu_order title','order'=>'ASC','fields'=>'ids'))),
+            'regions'=>array_map('intval',get_posts(array('post_type'=>'sf_region','post_status'=>array('publish','draft'),'posts_per_page'=>-1,'orderby'=>'title','order'=>'ASC','fields'=>'ids'))),
+            'cities'=>array_map('intval',get_posts(array('post_type'=>'sf_city','post_status'=>array('publish','draft'),'posts_per_page'=>-1,'orderby'=>'title','order'=>'ASC','fields'=>'ids'))),
+            'languages'=>array('uk','ru'),
+        );
         $token=wp_generate_uuid4();$encoded=wp_json_encode($snapshot);if($encoded===false)throw new RuntimeException('Не удалось сериализовать snapshot матрицы.');
         $ok=$wpdb->insert(SFC_DB::runs_table(),array('run_token'=>$token,'snapshot'=>$encoded,'cursor'=>0,'status'=>'active','created_at'=>current_time('mysql',true),'expires_at'=>gmdate('Y-m-d H:i:s',time()+DAY_IN_SECONDS)),array('%s','%s','%d','%s','%s','%s'));
         if($ok===false)throw new RuntimeException('Не удалось создать snapshot матрицы: '.$wpdb->last_error);
@@ -184,17 +188,35 @@ class SFC_Matrix {
         global $wpdb;if($token==='')return self::create_run();
         $row=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.SFC_DB::runs_table().' WHERE run_token=%s AND status=%s AND expires_at>UTC_TIMESTAMP()',$token,'active'),ARRAY_A);
         if(!$row){if($wpdb->last_error)throw new RuntimeException('Не удалось прочитать snapshot матрицы: '.$wpdb->last_error);return self::create_run();}$snapshot=json_decode($row['snapshot'],true);
-        if(!is_array($snapshot))throw new RuntimeException('Повреждён snapshot матрицы.');
+        if(!self::snapshot_valid($snapshot))throw new RuntimeException('Повреждён snapshot матрицы.');
         return array('token'=>$row['run_token'],'snapshot'=>$snapshot,'cursor'=>(int)$row['cursor']);
+    }
+    private static function snapshot_valid($snapshot){
+        if(!is_array($snapshot))return false;
+        if(!isset($snapshot['version']))return empty($snapshot)||array_keys($snapshot)===range(0,count($snapshot)-1);
+        return $snapshot['version']===2&&isset($snapshot['products'],$snapshot['regions'],$snapshot['cities'],$snapshot['languages'])&&is_array($snapshot['products'])&&is_array($snapshot['regions'])&&is_array($snapshot['cities'])&&is_array($snapshot['languages'])&&!empty($snapshot['languages']);
+    }
+    private static function snapshot_total($snapshot){
+        if(isset($snapshot['version'])&&$snapshot['version']===2){$languages=count($snapshot['languages']);return count($snapshot['products'])*$languages*(count($snapshot['cities'])+1)+count($snapshot['regions'])*$languages+count($snapshot['cities'])*$languages;}
+        return count($snapshot);
+    }
+    private static function snapshot_spec($snapshot,$index){
+        if(!isset($snapshot['version'])||$snapshot['version']!==2)return $snapshot[$index]??null;
+        $languages=$snapshot['languages'];$language_count=count($languages);$city_count=count($snapshot['cities']);$per_language=$city_count+1;
+        $product_rows=count($snapshot['products'])*$language_count*$per_language;
+        if($index<$product_rows){$block=intdiv($index,$per_language);$position=$index%$per_language;$product=$snapshot['products'][intdiv($block,$language_count)];$lang=$languages[$block%$language_count];return $position===0?array('product',$product,0,$lang):array('product_city',$product,$snapshot['cities'][$position-1],$lang);}
+        $relative=$index-$product_rows;$region_rows=count($snapshot['regions'])*$language_count;
+        if($relative<$region_rows)return array('region',$snapshot['regions'][intdiv($relative,$language_count)],0,$languages[$relative%$language_count]);
+        $relative-=$region_rows;return array('city',$snapshot['cities'][intdiv($relative,$language_count)],0,$languages[$relative%$language_count]);
     }
     public static function cleanup_runs(){global $wpdb;$deleted=$wpdb->query('DELETE FROM '.SFC_DB::runs_table()." WHERE expires_at<UTC_TIMESTAMP() OR (status='complete' AND created_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 HOUR))");if($deleted===false)throw new RuntimeException('Не удалось очистить matrix runs: '.$wpdb->last_error);return $deleted;}
 
     public static function enqueue_create_jobs($limit=500,$cursor=0,$run_token='') {
         global $wpdb;$legacy=func_num_args()===1;$limit=max(1,(int)$limit);self::cleanup_runs();$run=self::load_run($run_token);$cursor=$run['cursor'];
         $result=array('inserted'=>0,'requeued'=>0,'already_exists'=>0,'failed'=>0,'next_cursor'=>$cursor,'has_more'=>false,'run_token'=>$run['token']);
-        $snapshot=$run['snapshot'];$total=count($snapshot);
+        $snapshot=$run['snapshot'];$total=self::snapshot_total($snapshot);
         for($index=$cursor;$index<$total;$index++){
-            $spec=$snapshot[$index];$row=self::evaluate($spec[0],(int)$spec[1],(int)$spec[2],$spec[3],'');$next=$index+1;
+            $spec=self::snapshot_spec($snapshot,$index);if(!$spec)throw new RuntimeException('Повреждён traversal snapshot матрицы.');$row=self::evaluate($spec[0],(int)$spec[1],(int)$spec[2],$spec[3],'');$next=$index+1;
             if($row['decision']!=='CREATE'){$result['next_cursor']=$next;continue;}
             if(($result['inserted']+$result['requeued']+$result['already_exists']+$result['failed'])>=$limit){$result['has_more']=true;break;}
             $job=array('page_type'=>$row['page_type'],'entity_id'=>$row['entity_id'],'related_id'=>$row['related_id'],'lang'=>$row['lang'],'query'=>$row['query']);
