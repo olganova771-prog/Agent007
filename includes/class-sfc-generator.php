@@ -59,14 +59,16 @@ class SFC_Generator {
         );
     }
 
-    public static function generate_page($job) {
+    public static function generate_page($job,$lease=array()) {
+        $validation=SFC_Matrix::validate_job($job);
+        if(empty($validation['valid'])) throw new SFC_Permanent_Job_Exception('Задание больше не прошло authoritative validation: '.$validation['reason']);
         $type = sanitize_key($job['page_type'] ?? '');
         $raw_entity = $job['entity_id'] ?? 0;
         $id = is_array($raw_entity) ? array_values(array_unique(array_filter(array_map('absint', $raw_entity)))) : absint($raw_entity);
         if (in_array($type, array('product','product_city'), true)) {
             $allowed = self::product_source($id, ($job['lang'] ?? 'uk') === 'ru' ? 'ru' : 'uk')['allowed_types'];
             if ($allowed && !in_array($type, $allowed, true)) {
-                throw new RuntimeException('Тип страницы запрещён настройками источника товара.');
+                throw new SFC_Permanent_Job_Exception('Тип страницы запрещён настройками источника товара.');
             }
         }
         $related = absint($job['related_id'] ?? 0);
@@ -80,45 +82,52 @@ class SFC_Generator {
         $entity_signature = is_array($id) ? implode(',', $id) : (string)$id;
         $signature = hash('sha256', implode('|',array($type,$entity_signature,$related,$lang)));
         $existing = self::find_generated_by_signature($signature);
-        if ($existing) {
-            update_post_meta($existing,'_sfc_generation_profile', $profile);
-            update_post_meta($existing,'_sfc_content_hash',hash('sha256',wp_strip_all_tags($data['content'])));
-            update_post_meta($existing,'_sfc_title_generated',$data['title']);
-            return $existing;
-        }
-
+        self::assert_lease($lease);
         $parent = self::language_root($lang);
-        $post_id = wp_insert_post(array(
+        if(!$parent) throw new RuntimeException('Не удалось создать или найти языковой корень.');
+        $postarr=array(
             'post_type'=>'page',
-            'post_status'=>'publish',
+            'post_status'=>$existing?get_post_status($existing):'publish',
             'post_title'=>$data['title'],
             'post_content'=>$data['content'],
             'post_excerpt'=>$data['excerpt'],
             'post_name'=>sanitize_title($data['slug']),
             'post_parent'=>$parent,
             'menu_order'=>0,
-        ), true);
+        );
+        if($existing){
+            $postarr['ID']=$existing;
+            $post_id=wp_update_post($postarr,true);
+        }else{
+            $post_id=wp_insert_post($postarr,true);
+        }
         if (is_wp_error($post_id)) throw new RuntimeException($post_id->get_error_message());
 
-        update_post_meta($post_id,'_sfc_managed','1');
-        update_post_meta($post_id,'_sfc_page_type',$type);
-        update_post_meta($post_id,'_sfc_entity_id',$id);
-        update_post_meta($post_id,'_sfc_related_id',$related);
-        update_post_meta($post_id,'_sfc_lang',$lang);
-        update_post_meta($post_id,'_sfc_signature',$signature);
-        update_post_meta($post_id,'_sfc_seed',$seed);
-        update_post_meta($post_id,'_sfc_generation_profile',$profile);
-        update_post_meta($post_id,'_sfc_content_hash',hash('sha256',wp_strip_all_tags($data['content'])));
-        update_post_meta($post_id,'_sfc_seo_title',$data['seo_title']);
-        update_post_meta($post_id,'_sfc_meta_description',$data['meta_description']);
-        update_post_meta($post_id,'_sfc_noindex',$data['noindex'] ? '1' : '0');
-        update_post_meta($post_id,'_sfc_query',$job['query'] ?? '');
+        self::assert_lease($lease);
+        $meta=array(
+            '_sfc_managed'=>'1','_sfc_page_type'=>$type,'_sfc_entity_id'=>$id,'_sfc_related_id'=>$related,
+            '_sfc_lang'=>$lang,'_sfc_signature'=>$signature,'_sfc_seed'=>$seed,'_sfc_generation_profile'=>$profile,
+            '_sfc_content_hash'=>hash('sha256',wp_strip_all_tags($data['content'])),'_sfc_title_generated'=>$data['title'],
+            '_sfc_seo_title'=>$data['seo_title'],'_sfc_meta_description'=>$data['meta_description'],
+            '_sfc_noindex'=>$data['noindex']?'1':'0','_sfc_query'=>$job['query']??'',
+        );
+        foreach($meta as $key=>$value) self::set_meta($post_id,$key,$value);
 
+        self::assert_lease($lease);
         self::link_translation($post_id,$type,$id,$related,$lang);
-        SFC_QA::run_for_page($post_id);
-        SFC_DB::log('info','page_created','Создана страница',array('post_id'=>$post_id,'type'=>$type,'lang'=>$lang));
+        self::assert_lease($lease);
+        $qa=SFC_QA::run_for_page($post_id);if(!is_array($qa))throw new RuntimeException('QA не сохранил результат.');
+        if(!empty($lease['completion_key']))self::set_meta($post_id,'_sfc_completed_execution',$lease['completion_key']);
+        SFC_DB::log('info',$existing?'page_updated':'page_created',$existing?'Обновлена страница':'Создана страница',array('post_id'=>$post_id,'type'=>$type,'lang'=>$lang));
         return $post_id;
     }
+
+    public static function job_was_completed($job,$completion_key){
+        $type=sanitize_key($job['page_type']??'');$raw=$job['entity_id']??0;$id=is_array($raw)?array_values(array_unique(array_filter(array_map('absint',$raw)))):absint($raw);$entity=is_array($id)?implode(',',$id):(string)$id;$related=absint($job['related_id']??0);$lang=($job['lang']??'uk')==='ru'?'ru':'uk';
+        $post_id=self::find_generated_by_signature(hash('sha256',implode('|',array($type,$entity,$related,$lang))));
+        return $post_id&&hash_equals((string)get_post_meta($post_id,'_sfc_completed_execution',true),(string)$completion_key);
+    }
+    private static function assert_lease($lease){if($lease&&!SFC_Queue::heartbeat($lease))throw new RuntimeException('Worker lost ownership lease.');}
 
     private static function build_content($type,$id,$related,$lang,$profile,$query) {
         $variant = SFC_Variation::template_variant($profile['seed'],3);
@@ -277,8 +286,9 @@ class SFC_Generator {
         $title=$lang==='ru'?'RU':'UA';
         $found=get_page_by_path('sf-'.$slug);
         if($found)return $found->ID;
-        $id = wp_insert_post(array('post_type'=>'page','post_status'=>'publish','post_title'=>$title,'post_name'=>'sf-'.$slug,'post_content'=>'','post_parent'=>0));
-        if ($id) { update_post_meta($id, '_sfc_root', '1'); update_post_meta($id, '_sfc_noindex', '1'); }
+        $id = wp_insert_post(array('post_type'=>'page','post_status'=>'publish','post_title'=>$title,'post_name'=>'sf-'.$slug,'post_content'=>'','post_parent'=>0),true);
+        if(is_wp_error($id)) throw new RuntimeException($id->get_error_message());
+        if ($id) { self::set_meta($id,'_sfc_root','1');self::set_meta($id,'_sfc_noindex','1'); }
         return $id;
     }
 
@@ -288,9 +298,11 @@ class SFC_Generator {
 
     private static function link_translation($post_id,$type,$id,$related,$lang){
         $other=$lang==='uk'?'ru':'uk';
-        $signature=hash('sha256',implode('|',array($type,$id,$related,$other)));
+        $entity_signature=is_array($id)?implode(',',$id):(string)$id;
+        $signature=hash('sha256',implode('|',array($type,$entity_signature,$related,$other)));
         $other_id=self::find_generated_by_signature($signature);
-        if($other_id){update_post_meta($post_id,'_sfc_translation_id',$other_id);update_post_meta($other_id,'_sfc_translation_id',$post_id);}
+        if($other_id){self::set_meta($post_id,'_sfc_translation_id',$other_id);self::set_meta($other_id,'_sfc_translation_id',$post_id);}
+        else{delete_post_meta($post_id,'_sfc_translation_id');if(get_post_meta($post_id,'_sfc_translation_id',true)!=='')throw new RuntimeException('Не удалось очистить translation meta.');}
     }
 
     private static function cities_for_region($region_id,$lang){
@@ -311,5 +323,9 @@ class SFC_Generator {
         $out=array(); foreach(self::lines($value) as $line){$parts=explode('::',$line,2);if(count($parts)===2)$out[]=array('q'=>trim($parts[0]),'a'=>trim($parts[1]));} return $out;
     }
     private static function ids($value){return array_values(array_filter(array_map('absint',self::lines($value))));}
+    private static function set_meta($post_id,$key,$value){
+        update_post_meta($post_id,$key,$value);
+        if(get_post_meta($post_id,$key,true)!=$value) throw new RuntimeException('Не удалось сохранить meta '.$key.' для страницы '.$post_id.'.');
+    }
     private static function paragraphs($text){$paras=preg_split('/\r\n\r\n|\n\n/',trim((string)$text));$out='';foreach($paras as $p){$out.='<p>'.wp_kses_post(nl2br($p)).'</p>';}$out=trim($out);return $out;}
 }
