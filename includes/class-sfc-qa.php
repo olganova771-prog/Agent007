@@ -17,10 +17,12 @@ class SFC_QA {
             $forbidden=(array)SFC_Generator::product_source($sid,$lang)['forbidden'];
             foreach($forbidden as $bad){ if($bad!=='' && mb_stripos($content,$bad)!==false) { $issues[]='forbidden_claim:'.$bad; } }
         }
-        $duplicate=self::duplicate_similarity($post_id);if($duplicate!==false){$issues[]='high_similarity_with_'.$duplicate;update_post_meta($post_id,'_sfc_qa_similarity_post',$duplicate);}else delete_post_meta($post_id,'_sfc_qa_similarity_post');
-        update_post_meta($post_id,'_sfc_qa',array('ok'=>empty($issues),'issues'=>$issues,'checked_at'=>current_time('mysql')));
+        $duplicate=self::duplicate_similarity($post_id);if($duplicate!==false){$issues[]='high_similarity_with_'.$duplicate;update_post_meta($post_id,'_sfc_qa_similarity_post',$duplicate);if((int)get_post_meta($post_id,'_sfc_qa_similarity_post',true)!==(int)$duplicate)throw new RuntimeException('Не удалось сохранить similarity QA meta.');}else{delete_post_meta($post_id,'_sfc_qa_similarity_post');if(get_post_meta($post_id,'_sfc_qa_similarity_post',true)!=='')throw new RuntimeException('Не удалось очистить similarity QA meta.');}
+        $result=array('ok'=>empty($issues),'issues'=>$issues,'checked_at'=>current_time('mysql'));
+        update_post_meta($post_id,'_sfc_qa',$result);
+        if(get_post_meta($post_id,'_sfc_qa',true)!=$result)throw new RuntimeException('Не удалось сохранить результат QA.');
         if($issues)SFC_DB::log('warning','qa_issue','QA нашёл проблемы',array('post_id'=>$post_id,'issues'=>$issues));
-        return array('ok'=>empty($issues),'issues'=>$issues);
+        return $result;
     }
     public static function duplicate_similarity($post_id){
         $post=get_post($post_id);if(!$post)return false;$threshold=(float)SFC_Settings::get('similarity_threshold',0.82);
