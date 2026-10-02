@@ -103,8 +103,20 @@ class SFC_Queue {
     public static function recover_stale_jobs() {
         global $wpdb;
         $table=SFC_DB::jobs_table();
-        $stale=$wpdb->get_results("SELECT id,lease_token FROM {$table} WHERE status='processing' AND lease_expires_at IS NOT NULL AND lease_expires_at<UTC_TIMESTAMP()",ARRAY_A);$recovered=0;if($stale===null&&$wpdb->last_error){SFC_DB::log('error','queue_recovery_select',$wpdb->last_error);return false;}
-        foreach((array)$stale as $row){$lock='sfc_job_'.(int)$row['id'];if((int)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s,0)',$lock))!==1)continue;$updated=$wpdb->query($wpdb->prepare("UPDATE {$table} SET status=IF(attempts+1>=3,'failed','queued'),attempts=attempts+1,available_at=UTC_TIMESTAMP(),lease_token=NULL,lease_expires_at=NULL,finished_at=UTC_TIMESTAMP(),last_error='Worker lease expired before completion.' WHERE id=%d AND status='processing' AND lease_token=%s AND lease_expires_at<UTC_TIMESTAMP()",(int)$row['id'],$row['lease_token']));if($updated===1)$recovered++;elseif($updated===false)SFC_DB::log('error','queue_recovery',$wpdb->last_error,array('job_id'=>$row['id']));$wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)',$lock));}
+        $stale=$wpdb->get_results("SELECT id,job_type,payload,lease_token,execution_token FROM {$table} WHERE status='processing' AND lease_expires_at IS NOT NULL AND lease_expires_at<UTC_TIMESTAMP()",ARRAY_A);$recovered=0;if($stale===null&&$wpdb->last_error){SFC_DB::log('error','queue_recovery_select',$wpdb->last_error);return false;}
+        foreach((array)$stale as $row){
+            $lock='sfc_job_'.(int)$row['id'];if((int)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s,0)',$lock))!==1)continue;
+            $payload=json_decode($row['payload'],true);$completed=$row['job_type']==='generate_page'&&is_array($payload)&&json_last_error()===JSON_ERROR_NONE&&!empty($row['execution_token'])&&SFC_Generator::job_was_completed($payload,$row['execution_token']);
+            if($completed){
+                $updated=$wpdb->query($wpdb->prepare("UPDATE {$table} SET status='done',finished_at=UTC_TIMESTAMP(),lease_token=NULL,lease_expires_at=NULL,last_error=NULL WHERE id=%d AND status='processing' AND lease_token=%s AND execution_token=%s AND lease_expires_at<UTC_TIMESTAMP()",(int)$row['id'],$row['lease_token'],$row['execution_token']));
+                if($updated===1){$recovered++;SFC_DB::log('info','queue_completion_reconciled','Завершённая генерация подтверждена по execution marker.',array('job_id'=>$row['id']));}
+                elseif($updated===false)SFC_DB::log('error','queue_reconcile',$wpdb->last_error,array('job_id'=>$row['id']));
+            }else{
+                $updated=$wpdb->query($wpdb->prepare("UPDATE {$table} SET status=IF(attempts+1>=3,'failed','queued'),attempts=attempts+1,available_at=UTC_TIMESTAMP(),lease_token=NULL,lease_expires_at=NULL,finished_at=UTC_TIMESTAMP(),last_error='Worker lease expired before completion.' WHERE id=%d AND status='processing' AND lease_token=%s AND lease_expires_at<UTC_TIMESTAMP()",(int)$row['id'],$row['lease_token']));
+                if($updated===1)$recovered++;elseif($updated===false)SFC_DB::log('error','queue_recovery',$wpdb->last_error,array('job_id'=>$row['id']));
+            }
+            $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)',$lock));
+        }
         if($recovered>0) SFC_DB::log('warning','queue_recovery','Восстановлены зависшие задания.',array('count'=>$recovered));
         return $recovered;
     }
