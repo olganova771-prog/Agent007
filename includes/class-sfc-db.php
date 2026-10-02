@@ -91,6 +91,16 @@ class SFC_DB {
             self::log('error','db_schema',$error,array('version'=>SFC_DB_VERSION,'dbdelta'=>$migration_messages));
             return false;
         }
+        $legacy_grace=max(300,(int)apply_filters('sfc_legacy_processing_grace',900));
+        $backfilled=$wpdb->query($wpdb->prepare(
+            "UPDATE {$jobs} SET lease_token=COALESCE(lease_token,CONCAT('legacy-',id,'-',UUID())),lease_expires_at=COALESCE(lease_expires_at,DATE_ADD(UTC_TIMESTAMP(),INTERVAL %d SECOND)),execution_token=COALESCE(execution_token,UUID()) WHERE status='processing' AND (lease_token IS NULL OR lease_expires_at IS NULL OR execution_token IS NULL)",
+            $legacy_grace
+        ));
+        if($backfilled===false){
+            $error=$wpdb->last_error?:'Unable to initialize leases for legacy processing jobs.';
+            self::$schema_ready=false;update_option('sfc_db_error',$error);self::log('error','db_legacy_jobs',$error,array('version'=>SFC_DB_VERSION));return false;
+        }
+        if($backfilled>0)self::log('warning','db_legacy_jobs','Legacy processing jobs received recoverable leases.',array('count'=>$backfilled,'grace_seconds'=>$legacy_grace));
         delete_option('sfc_db_error');
         update_option('sfc_db_version', SFC_DB_VERSION);
         SFC_Post_Types::register_types();

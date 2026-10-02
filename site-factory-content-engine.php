@@ -15,7 +15,7 @@ define('SFC_VERSION', '1.0.0');
 define('SFC_FILE', __FILE__);
 define('SFC_DIR', plugin_dir_path(__FILE__));
 define('SFC_URL', plugin_dir_url(__FILE__));
-define('SFC_DB_VERSION', '1.3.0');
+define('SFC_DB_VERSION', '1.3.1');
 
 autoload_sfc();
 
