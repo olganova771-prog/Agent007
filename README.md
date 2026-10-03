@@ -1,40 +1,38 @@
-# Site Factory — Content & Site Engine 1.0.0
+# Site Factory 3.0
 
-Deterministic WordPress Site/Content Factory without runtime AI/API dependency.
+Autonomous deterministic WordPress site factory.
+
+## Core workflow
+
+Project → Site Plan → draft generation → QA → publish.
+
+The plugin runs without a runtime AI dependency. Ukrainian is the primary language; an optional Russian layer can be generated when enabled. Generation and indexability are deliberately separated so large geo plans can be built without automatically indexing weak pages.
 
 ## Included
 
-- Product source-of-truth CPT with UA/RU fields.
-- Region and City entities.
-- Ukraine geography seed for 22 oblasts (excluding Crimea, Donetsk and Luhansk oblasts) with five cities each; entities start as admin data and are **not** auto-published.
-- Content Matrix: CREATE / MERGE / SKIP.
-- Product + City usefulness gate.
-- Deterministic intent classification for product queries.
-- Queue backed by a dedicated DB table and WP-Cron.
-- Deterministic Structural + Editorial Variation with 30 stored editorial parameters.
-- Duplicate-safe generation using signatures and similarity QA.
-- SEO: title, description, canonical, robots, hreflang, Open Graph (when no Yoast/Rank Math), JSON-LD, sitemap exclusion for noindex pages.
-- Five frontend themes using one shared design system.
-- `[sf_home]` shortcode and generated standalone page renderer.
-- No destructive uninstall: generated content is preserved.
+- Structured project wizard instead of the legacy product meta-box workflow.
+- One fully populated demo product: **Aurora Mini**.
+- Complete bundled Ukraine city dataset: **463 cities**.
+- Product and Product+City planning.
+- Full-coverage Product+City generation for all bundled cities when enabled.
+- Separate geo indexability switch; weak geo pages remain noindex by default.
+- UA primary + optional RU version with hreflang links.
+- 30 configurable editorial traits.
+- Five visual profiles: CREATOR, BUSINESSMAN, BANDIT, CARTEL, MASTER.
+- Draft-first rendering.
+- Leased/recoverable queue with retries.
+- QA gate before publication.
+- Canonical/meta/robots/Open Graph/JSON-LD/hreflang output.
+- Internal links and optional WooCommerce draft-product synchronization.
+- CI across PHP 8.0–8.3.
+- Automatic installable ZIP artifact.
 
 ## Install
 
-1. Upload `site-factory-content-engine.zip` in WordPress → Plugins.
-2. Activate.
-3. Open **Site Factory → Dashboard**.
-4. Click **Загрузить базовую географию Украины** to seed region/city entities.
-5. Create products in **Site Factory → Товары** (or the WP admin list under Site Factory).
-6. Fill UA first; fill RU fields when a real Russian version is available. The generator does not auto-translate.
-7. Open **Content Matrix**, inspect CREATE/MERGE/SKIP, then queue CREATE.
-8. Let WP-Cron process the queue. The plugin generates pages sequentially and avoids duplicates.
-9. Open **Дизайн и настройки** to choose one of five themes.
-10. Create the Home page with the provided action or add `[sf_home]` to an existing page.
+Upload the generated site-factory-3.0.0.zip in WordPress → Plugins → Add Plugin → Upload Plugin.
 
-## Important architecture choices
+After activation, Site Factory creates a demo project with one complete demo product and a small geo sample. New projects default to full-city planning; geo pages are generated independently from their indexing decision.
 
-- SKIP means no page is created. NOINDEX is reserved for technical/indexing cases.
-- Product + City is not generated from a blind Cartesian product.
-- Generated pages are normal WordPress Pages with hidden Site Factory metadata and language-root parents (`SF UA` / `SF RU`). Product/City/Region are source entities, not duplicate public pages.
-- WooCommerce is not required. CTA is URL-based and can later be replaced by an adapter.
-- No runtime AI call is made by this plugin.
+## Production rule
+
+Generated pages start as drafts. Publication is blocked by critical QA issues.
