@@ -324,7 +324,7 @@ class SFC_Generator {
     }
     private static function ids($value){return array_values(array_filter(array_map('absint',self::lines($value))));}
     private static function set_meta($post_id,$key,$value){
-        update_post_meta($post_id,$key,$value);
+        update_post_meta($post_id,$key,wp_slash($value));
         if(get_post_meta($post_id,$key,true)!=$value) throw new RuntimeException('Не удалось сохранить meta '.$key.' для страницы '.$post_id.'.');
     }
     private static function paragraphs($text){$paras=preg_split('/\r\n\r\n|\n\n/',trim((string)$text));$out='';foreach($paras as $p){$out.='<p>'.wp_kses_post(nl2br($p)).'</p>';}$out=trim($out);return $out;}
