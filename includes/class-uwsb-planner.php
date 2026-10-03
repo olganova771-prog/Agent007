@@ -9,9 +9,9 @@ class UWSB_Planner {
         } return $items;
     }
     public static function query_clusters($queries,$items=[]){
-        $clusters=[]; foreach(preg_split('/\r\n|\r|\n/',trim((string)$queries)) as $q){ $q=trim(mb_strtolower($q)); if(!$q)continue;
+        $clusters=[]; foreach(preg_split('/\r\n|\r|\n/',trim((string)$queries)) as $q){ $q=trim(function_exists('mb_strtolower')?mb_strtolower($q):strtolower($q)); if(!$q)continue;
             $intent=preg_match('/\b(купить|купити|цена|ціна|заказать|замовити)\b/u',$q)?'commercial':(preg_match('/\b(как|як|что|що|почему|чому|обзор|огляд)\b/u',$q)?'informational':'mixed');
-            $entity=''; foreach($items as $it){ if(mb_stripos($q,mb_strtolower($it['name']))!==false){$entity=$it['key'];break;} }
+            $entity=''; foreach($items as $it){ if((function_exists('mb_stripos')?mb_stripos($q,function_exists('mb_strtolower')?mb_strtolower($it['name']):strtolower($it['name'])):stripos($q,strtolower($it['name'])))!==false){$entity=$it['key'];break;} }
             $k=$entity?:$intent; if(!isset($clusters[$k]))$clusters[$k]=['intent'=>$intent,'entity_key'=>$entity,'queries'=>[]]; $clusters[$k]['queries'][]=$q;
         } return array_values($clusters);
     }
