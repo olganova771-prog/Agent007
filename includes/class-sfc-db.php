@@ -87,10 +87,13 @@ class SFC_DB {
         $migration_messages=array_merge((array)dbDelta($sql1),(array)dbDelta($sql2),(array)dbDelta($sql3));
         $migration_error=$wpdb->last_error;
         $run_columns=$wpdb->get_col("SHOW COLUMNS FROM {$runs}",0);
-        if($previous_version!==SFC_DB_VERSION&&in_array('cursor',(array)$run_columns,true)&&in_array('run_cursor',(array)$run_columns,true)){
+        if(in_array('cursor',(array)$run_columns,true)&&in_array('run_cursor',(array)$run_columns,true)){
             $migrated=$wpdb->query("UPDATE {$runs} SET `run_cursor`=`cursor`");
             if($migrated===false){
                 $migration_error=$wpdb->last_error?:'Unable to migrate the legacy matrix run cursor.';
+            }else{
+                $dropped=$wpdb->query("ALTER TABLE {$runs} DROP COLUMN `cursor`");
+                if($dropped===false)$migration_error=$wpdb->last_error?:'Unable to remove the legacy matrix run cursor column.';
             }
         }
         self::$schema_ready=null;
