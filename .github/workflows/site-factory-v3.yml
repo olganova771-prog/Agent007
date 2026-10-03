@@ -1,0 +1,53 @@
+name: Site Factory 3 CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - site-factory-v3-final
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.0','8.1','8.2','8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          extensions: mbstring
+      - name: PHP lint
+        run: find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+      - name: Site Factory regression
+        run: php tests/site-factory-v3-regression.php
+
+  package:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build installable plugin ZIP
+        run: |
+          mkdir -p build/site-factory
+          cp site-factory-content-engine.php uninstall.php README.md build/site-factory/
+          mkdir -p build/site-factory/includes build/site-factory/assets build/site-factory/templates build/site-factory/data
+          cp includes/class-uwsb-*.php build/site-factory/includes/
+          cp assets/admin.css assets/admin.js assets/site.css build/site-factory/assets/
+          cp templates/site-page.php build/site-factory/templates/
+          cp data/ukraine-cities.json build/site-factory/data/
+          cd build
+          zip -qr site-factory-3.0.0.zip site-factory
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-factory-3.0.0
+          path: build/site-factory-3.0.0.zip
+          if-no-files-found: error
+          retention-days: 30
