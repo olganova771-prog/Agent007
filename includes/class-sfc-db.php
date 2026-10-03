@@ -83,7 +83,6 @@ class SFC_DB {
             KEY created_at (created_at)
         ) {$charset};";
 
-        $previous_version=get_option('sfc_db_version');
         $migration_messages=array_merge((array)dbDelta($sql1),(array)dbDelta($sql2),(array)dbDelta($sql3));
         $migration_error=$wpdb->last_error;
         $run_columns=$wpdb->get_col("SHOW COLUMNS FROM {$runs}",0);
