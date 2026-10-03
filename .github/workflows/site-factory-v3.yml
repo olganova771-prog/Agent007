@@ -44,10 +44,10 @@ jobs:
           cp templates/site-page.php build/site-factory/templates/
           cp data/ukraine-cities.json build/site-factory/data/
           cd build
-          zip -qr site-factory-3.0.0.zip site-factory
+          zip -qr site-factory-3.0.1.zip site-factory
       - uses: actions/upload-artifact@v4
         with:
-          name: site-factory-3.0.0
-          path: build/site-factory-3.0.0.zip
+          name: site-factory-3.0.1
+          path: build/site-factory-3.0.1.zip
           if-no-files-found: error
           retention-days: 30
