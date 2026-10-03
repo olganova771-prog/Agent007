@@ -10,7 +10,7 @@ class UWSB_Profiles {
     ]; }
     public static function get($key){ $all=self::all(); return $all[$key]??$all['businessman']; }
     public static function traits($project_id,$page_key,$profile){
-        $keys=['formality','directness','detail','factual_density','structuredness','commercial_orientation','informational_orientation','syntactic_variation','lexical_diversity','heading_density','list_density','individuality'];
+        $keys=['formality','conversationality','directness','expertise','factual_density','detail','emotionality','friendliness','confidence','neutrality','practicality','benefit_orientation','feature_orientation','use_case_orientation','examples','structuredness','narrativity','questioning_style','direct_address','humor','local_orientation','commercial_orientation','informational_orientation','faq_orientation','syntactic_variation','lexical_diversity','heading_density','list_density','internal_link_density','individuality'];
         $base=['creator'=>65,'businessman'=>72,'bandit'=>78,'cartel'=>74,'master'=>82][$profile]??70; $out=[];
         foreach($keys as $k){ $h=hexdec(substr(hash('sha256',$project_id.'|'.$page_key.'|'.$profile.'|'.$k),0,6)); $out[$k]=max(20,min(95,$base+(($h%31)-15))); }
         return $out;
