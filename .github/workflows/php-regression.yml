@@ -34,7 +34,6 @@ jobs:
 
   package:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: regression
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
