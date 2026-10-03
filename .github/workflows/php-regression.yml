@@ -30,3 +30,23 @@ jobs:
         run: php tests/matrix-enqueue-budget-regression.php
       - name: Post meta slashing regression
         run: php tests/post-meta-slashing-regression.php
+
+
+  package:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build installable WordPress plugin ZIP
+        run: |
+          mkdir -p build/site-factory-content-engine
+          cp -a assets includes templates site-factory-content-engine.php uninstall.php README.md build/site-factory-content-engine/
+          cd build
+          zip -qr site-factory-content-engine-1.0.0-db1.3.3.zip site-factory-content-engine
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-factory-content-engine-1.0.0-db1.3.3
+          path: build/site-factory-content-engine-1.0.0-db1.3.3.zip
+          if-no-files-found: error
+          retention-days: 30
