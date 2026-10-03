@@ -36,7 +36,7 @@ if (strpos($generator, 'update_post_meta($post_id,$key,wp_slash($value));') === 
 }
 
 $qa = file_get_contents(dirname(__DIR__) . '/includes/class-sfc-qa.php');
-if (strpos($qa, "update_post_meta($post_id,'_sfc_qa',wp_slash($result));") === false) {
+if (strpos($qa, "update_post_meta(\$post_id,'_sfc_qa',wp_slash(\$result));") === false) {
     $failures[] = 'SFC_QA::run_for_page() does not slash the QA result before update_post_meta().';
 }
 
