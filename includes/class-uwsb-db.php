@@ -9,6 +9,7 @@ class UWSB_DB {
 
     public static function init(){
         if(get_option('uwsb_db_version')!==UWSB_DB_VERSION) self::install(false);
+        self::maybe_upgrade_demo_project();
     }
 
     public static function activate(){
@@ -237,6 +238,26 @@ class UWSB_DB {
             'context'=>wp_json_encode($context,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),
             'created_at'=>self::now(),
         ],['%d','%s','%s','%s','%s','%s','%s']);
+    }
+
+    private static function maybe_upgrade_demo_project(){
+        if(get_option('uwsb_demo_revision')==='3.0.1') return;
+        global $wpdb;
+        $rows=$wpdb->get_results("SELECT id,config FROM ".self::t('projects')." WHERE name='Aurora Demo' ORDER BY id ASC",ARRAY_A);
+        foreach((array)$rows as $row){
+            $config=json_decode($row['config'],true);
+            if(!is_array($config)) continue;
+            $products=(array)($config['products']??[]);
+            $sku=(string)($products[0]['sku']??'');
+            if($sku!=='AURORA-MINI-DEMO') continue;
+            $generated=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM ".self::t('pages')." WHERE project_id=%d AND wp_post_id IS NOT NULL",(int)$row['id']));
+            if($generated>0) continue;
+            $config['geo_all_cities']=true;
+            $config['selected_cities']=[];
+            self::update_project_config((int)$row['id'],$config);
+            UWSB_Engine::plan_project((int)$row['id']);
+        }
+        update_option('uwsb_demo_revision','3.0.1',false);
     }
 
     public static function seed_demo_project(){
