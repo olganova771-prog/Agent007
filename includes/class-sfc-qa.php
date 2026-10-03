@@ -11,15 +11,17 @@ class SFC_QA {
         if(strlen($content)<120) $issues[]='content_too_short';
         $type=get_post_meta($post_id,'_sfc_page_type',true);$lang=get_post_meta($post_id,'_sfc_lang',true);
         if(!$type||!in_array($lang,array('uk','ru'),true))$issues[]='missing_page_identity';
-        $entity=(int)get_post_meta($post_id,'_sfc_entity_id',true);$related=(int)get_post_meta($post_id,'_sfc_related_id',true);
-        $source_ids=array_filter(array($entity,$related));
+        $raw_entity=get_post_meta($post_id,'_sfc_entity_id',true);$related=(int)get_post_meta($post_id,'_sfc_related_id',true);
+        $source_ids=is_array($raw_entity)?array_values(array_unique(array_filter(array_map('absint',$raw_entity)))):array_filter(array(absint($raw_entity)));
+        if($related&&get_post_type($related)==='sf_product')$source_ids[]=$related;
+        $source_ids=array_values(array_unique(array_filter($source_ids,function($sid){return get_post_type($sid)==='sf_product';})));
         foreach($source_ids as $sid){
             $forbidden=(array)SFC_Generator::product_source($sid,$lang)['forbidden'];
             foreach($forbidden as $bad){ if($bad!=='' && mb_stripos($content,$bad)!==false) { $issues[]='forbidden_claim:'.$bad; } }
         }
         $duplicate=self::duplicate_similarity($post_id);if($duplicate!==false){$issues[]='high_similarity_with_'.$duplicate;update_post_meta($post_id,'_sfc_qa_similarity_post',$duplicate);if((int)get_post_meta($post_id,'_sfc_qa_similarity_post',true)!==(int)$duplicate)throw new RuntimeException('Не удалось сохранить similarity QA meta.');}else{delete_post_meta($post_id,'_sfc_qa_similarity_post');if(get_post_meta($post_id,'_sfc_qa_similarity_post',true)!=='')throw new RuntimeException('Не удалось очистить similarity QA meta.');}
         $result=array('ok'=>empty($issues),'issues'=>$issues,'checked_at'=>current_time('mysql'));
-        update_post_meta($post_id,'_sfc_qa',$result);
+        update_post_meta($post_id,'_sfc_qa',wp_slash($result));
         if(get_post_meta($post_id,'_sfc_qa',true)!=$result)throw new RuntimeException('Не удалось сохранить результат QA.');
         if($issues)SFC_DB::log('warning','qa_issue','QA нашёл проблемы',array('post_id'=>$post_id,'issues'=>$issues));
         return $result;
@@ -27,7 +29,10 @@ class SFC_QA {
     public static function duplicate_similarity($post_id){
         $post=get_post($post_id);if(!$post)return false;$threshold=(float)SFC_Settings::get('similarity_threshold',0.82);
         $hash=(string)get_post_meta($post_id,'_sfc_content_hash',true);if(!$hash)return false;
-        $others=get_posts(array('post_type'=>'page','post_status'=>'publish','posts_per_page'=>100,'meta_query'=>array(array('key'=>'_sfc_managed','value'=>'1'),array('key'=>'_sfc_lang','value'=>get_post_meta($post_id,'_sfc_lang',true))), 'exclude'=>array($post_id)));
+        $lang=(string)get_post_meta($post_id,'_sfc_lang',true);
+        $exact=get_posts(array('post_type'=>'page','post_status'=>'publish','posts_per_page'=>1,'fields'=>'ids','exclude'=>array($post_id),'meta_query'=>array(array('key'=>'_sfc_managed','value'=>'1'),array('key'=>'_sfc_lang','value'=>$lang),array('key'=>'_sfc_content_hash','value'=>$hash))));
+        if($exact)return (int)$exact[0];
+        $others=get_posts(array('post_type'=>'page','post_status'=>'publish','posts_per_page'=>100,'meta_query'=>array(array('key'=>'_sfc_managed','value'=>'1'),array('key'=>'_sfc_lang','value'=>$lang)), 'exclude'=>array($post_id)));
         $a=self::tokens($post->post_content);if(!$a)return false;
         foreach($others as $o){$b=self::tokens($o->post_content);$sim=self::jaccard($a,$b);if($sim>=$threshold)return $o->ID;}
         return false;

@@ -180,7 +180,7 @@ class SFC_Matrix {
             'languages'=>array('uk','ru'),
         );
         $token=wp_generate_uuid4();$encoded=wp_json_encode($snapshot);if($encoded===false)throw new RuntimeException('Не удалось сериализовать snapshot матрицы.');
-        $ok=$wpdb->insert(SFC_DB::runs_table(),array('run_token'=>$token,'snapshot'=>$encoded,'cursor'=>0,'status'=>'active','created_at'=>current_time('mysql',true),'expires_at'=>gmdate('Y-m-d H:i:s',time()+DAY_IN_SECONDS)),array('%s','%s','%d','%s','%s','%s'));
+        $ok=$wpdb->insert(SFC_DB::runs_table(),array('run_token'=>$token,'snapshot'=>$encoded,'run_cursor'=>0,'status'=>'active','created_at'=>current_time('mysql',true),'expires_at'=>gmdate('Y-m-d H:i:s',time()+DAY_IN_SECONDS)),array('%s','%s','%d','%s','%s','%s'));
         if($ok===false)throw new RuntimeException('Не удалось создать snapshot матрицы: '.$wpdb->last_error);
         return array('token'=>$token,'snapshot'=>$snapshot,'cursor'=>0);
     }
@@ -189,7 +189,7 @@ class SFC_Matrix {
         $row=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.SFC_DB::runs_table().' WHERE run_token=%s AND status=%s AND expires_at>UTC_TIMESTAMP()',$token,'active'),ARRAY_A);
         if(!$row){if($wpdb->last_error)throw new RuntimeException('Не удалось прочитать snapshot матрицы: '.$wpdb->last_error);return self::create_run();}$snapshot=json_decode($row['snapshot'],true);
         if(!self::snapshot_valid($snapshot))throw new RuntimeException('Повреждён snapshot матрицы.');
-        return array('token'=>$row['run_token'],'snapshot'=>$snapshot,'cursor'=>(int)$row['cursor']);
+        return array('token'=>$row['run_token'],'snapshot'=>$snapshot,'cursor'=>(int)$row['run_cursor']);
     }
     private static function snapshot_valid($snapshot){
         if(!is_array($snapshot))return false;
@@ -209,16 +209,16 @@ class SFC_Matrix {
         if($relative<$region_rows)return array('region',$snapshot['regions'][intdiv($relative,$language_count)],0,$languages[$relative%$language_count]);
         $relative-=$region_rows;return array('city',$snapshot['cities'][intdiv($relative,$language_count)],0,$languages[$relative%$language_count]);
     }
+    private static function snapshot_batch_end($cursor,$total,$limit){return $cursor>=$total?$total:$cursor+min($limit,$total-$cursor);}
     public static function cleanup_runs(){global $wpdb;$deleted=$wpdb->query('DELETE FROM '.SFC_DB::runs_table()." WHERE expires_at<UTC_TIMESTAMP() OR (status='complete' AND created_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 HOUR))");if($deleted===false)throw new RuntimeException('Не удалось очистить matrix runs: '.$wpdb->last_error);return $deleted;}
 
     public static function enqueue_create_jobs($limit=500,$cursor=0,$run_token='') {
         global $wpdb;$legacy=func_num_args()===1;$limit=max(1,(int)$limit);self::cleanup_runs();$run=self::load_run($run_token);$cursor=$run['cursor'];
         $result=array('inserted'=>0,'requeued'=>0,'already_exists'=>0,'failed'=>0,'next_cursor'=>$cursor,'has_more'=>false,'run_token'=>$run['token']);
-        $snapshot=$run['snapshot'];$total=self::snapshot_total($snapshot);
-        for($index=$cursor;$index<$total;$index++){
+        $snapshot=$run['snapshot'];$total=self::snapshot_total($snapshot);$batch_end=self::snapshot_batch_end($cursor,$total,$limit);
+        for($index=$cursor;$index<$batch_end;$index++){
             $spec=self::snapshot_spec($snapshot,$index);if(!$spec)throw new RuntimeException('Повреждён traversal snapshot матрицы.');$row=self::evaluate($spec[0],(int)$spec[1],(int)$spec[2],$spec[3],'');$next=$index+1;
             if($row['decision']!=='CREATE'){$result['next_cursor']=$next;continue;}
-            if(($result['inserted']+$result['requeued']+$result['already_exists']+$result['failed'])>=$limit){$result['has_more']=true;break;}
             $job=array('page_type'=>$row['page_type'],'entity_id'=>$row['entity_id'],'related_id'=>$row['related_id'],'lang'=>$row['lang'],'query'=>$row['query']);
             $queued=SFC_Queue::enqueue_result('generate_page',$job);
             $status=$queued['status'];
@@ -228,7 +228,7 @@ class SFC_Matrix {
         }
         $result['has_more']=$result['has_more']||$result['next_cursor']<$total;
         $status=$result['next_cursor']>=$total?'complete':'active';
-        $updated=$wpdb->query($wpdb->prepare('UPDATE '.SFC_DB::runs_table().' SET cursor=%d,status=%s WHERE run_token=%s AND cursor=%d',$result['next_cursor'],$status,$run['token'],$cursor));
+        $updated=$wpdb->query($wpdb->prepare('UPDATE '.SFC_DB::runs_table().' SET run_cursor=%d,status=%s WHERE run_token=%s AND run_cursor=%d',$result['next_cursor'],$status,$run['token'],$cursor));
         if($updated!==1&&$result['failed']===0){$result['failed']++;$result['has_more']=true;}
         return $legacy?($result['inserted']+$result['requeued']):$result;
     }

@@ -22,8 +22,9 @@ class SFC_DB {
         global $wpdb;$jobs=self::jobs_table();$runs=self::runs_table();
         $job_columns=$wpdb->get_col("SHOW COLUMNS FROM {$jobs}",0);
         $run_table=$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$runs));
+        $run_columns=$run_table===$runs?$wpdb->get_col("SHOW COLUMNS FROM {$runs}",0):array();
         $job_index=$wpdb->get_var("SHOW INDEX FROM {$jobs} WHERE Key_name='job_key'");$run_index=$run_table===$runs?$wpdb->get_var("SHOW INDEX FROM {$runs} WHERE Key_name='run_token'"):null;
-        return self::$schema_ready=in_array('lease_token',(array)$job_columns,true)&&in_array('lease_expires_at',(array)$job_columns,true)&&in_array('execution_token',(array)$job_columns,true)&&$run_table===$runs&&$job_index!==null&&$run_index!==null;
+        return self::$schema_ready=in_array('lease_token',(array)$job_columns,true)&&in_array('lease_expires_at',(array)$job_columns,true)&&in_array('execution_token',(array)$job_columns,true)&&$run_table===$runs&&in_array('run_cursor',(array)$run_columns,true)&&$job_index!==null&&$run_index!==null;
     }
 
     public static function activate() {
@@ -62,7 +63,7 @@ class SFC_DB {
             id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
             run_token varchar(64) NOT NULL,
             snapshot longtext NOT NULL,
-            cursor bigint(20) unsigned NOT NULL DEFAULT 0,
+            run_cursor bigint(20) unsigned NOT NULL DEFAULT 0,
             status varchar(20) NOT NULL DEFAULT 'active',
             created_at datetime NOT NULL,
             expires_at datetime NOT NULL,
@@ -84,8 +85,18 @@ class SFC_DB {
 
         $migration_messages=array_merge((array)dbDelta($sql1),(array)dbDelta($sql2),(array)dbDelta($sql3));
         $migration_error=$wpdb->last_error;
+        $run_columns=$wpdb->get_col("SHOW COLUMNS FROM {$runs}",0);
+        if(in_array('cursor',(array)$run_columns,true)&&in_array('run_cursor',(array)$run_columns,true)){
+            $migrated=$wpdb->query("UPDATE {$runs} SET `run_cursor`=`cursor`");
+            if($migrated===false){
+                $migration_error=$wpdb->last_error?:'Unable to migrate the legacy matrix run cursor.';
+            }else{
+                $dropped=$wpdb->query("ALTER TABLE {$runs} DROP COLUMN `cursor`");
+                if($dropped===false)$migration_error=$wpdb->last_error?:'Unable to remove the legacy matrix run cursor column.';
+            }
+        }
         self::$schema_ready=null;
-        if (!self::schema_ready()) {
+        if ($migration_error || !self::schema_ready()) {
             $error=$migration_error?:($wpdb->last_error?:'Required jobs columns or indexes or matrix-runs table are missing after dbDelta.');
             update_option('sfc_db_error',$error);
             self::log('error','db_schema',$error,array('version'=>SFC_DB_VERSION,'dbdelta'=>$migration_messages));
