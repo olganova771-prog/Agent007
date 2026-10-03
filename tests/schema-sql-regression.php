@@ -28,7 +28,10 @@ if (preg_match('/(?:SET|AND)\s+cursor\s*=/i', $matrix)) {
     $failures[] = 'Matrix runtime SQL still accesses the legacy cursor column.';
 }
 if (strpos($db, 'SET `run_cursor`=`cursor`') === false) {
-    $failures[] = 'The idempotent legacy cursor data migration is missing.';
+    $failures[] = 'The legacy cursor data migration is missing.';
+}
+if (strpos($db, 'DROP COLUMN `cursor`') === false) {
+    $failures[] = 'The legacy cursor column is not removed after migration, so a later schema upgrade could replay stale cursor data.';
 }
 
 if ($failures) {
