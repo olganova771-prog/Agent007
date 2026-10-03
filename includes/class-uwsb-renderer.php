@@ -8,5 +8,5 @@ class UWSB_Renderer {
     public static function data_for_post($post_id){ $raw=get_post_meta($post_id,'_uwsb_render_data',true); return is_array($raw)?$raw:[]; }
     public static function nav($project_id){ $plans=UWSB_DB::plans($project_id); $out=[]; foreach($plans as $p){ if(!$p['wp_post_id'])continue; if(in_array($p['page_type'],['home','catalog','coverage','contacts'],true)) $out[]=['label'=>get_the_title((int)$p['wp_post_id']),'url'=>get_permalink((int)$p['wp_post_id'])]; } return $out; }
     public static function cards($project_id){ $out=[]; foreach(UWSB_DB::plans($project_id) as $p){ if($p['page_type']!=='product'||!$p['wp_post_id'])continue; $d=json_decode($p['plan'],true)?:[]; $it=$d['item']??[]; $out[]=['name'=>$it['name']??get_the_title($p['wp_post_id']),'price'=>$it['price']??'','facts'=>$it['facts']??[],'url'=>get_permalink((int)$p['wp_post_id'])]; } return $out; }
-    public static function monogram($name){ $s=trim(wp_strip_all_tags($name)); return esc_html(mb_strtoupper(mb_substr($s,0,1))); }
+    public static function monogram($name){ $s=trim(wp_strip_all_tags($name)); return esc_html(function_exists('mb_substr')?(function_exists('mb_strtoupper')?mb_strtoupper(mb_substr($s,0,1)):mb_substr($s,0,1)):strtoupper(substr($s,0,1))); }
 }
