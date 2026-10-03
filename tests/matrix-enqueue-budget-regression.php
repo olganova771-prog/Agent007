@@ -11,6 +11,7 @@ if (!defined('ABSPATH')) {
 require_once dirname(__DIR__) . '/includes/class-sfc-matrix.php';
 
 $method = new ReflectionMethod('SFC_Matrix', 'snapshot_batch_end');
+$method->setAccessible(true);
 $failures = array();
 
 $cases = array(
