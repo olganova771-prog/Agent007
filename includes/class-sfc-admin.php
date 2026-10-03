@@ -10,7 +10,9 @@ class SFC_Admin {
         add_action('admin_post_sfc_create_home',array(__CLASS__,'create_home'));
         add_action('admin_post_sfc_manual',array(__CLASS__,'manual'));
         add_action('admin_enqueue_scripts',array(__CLASS__,'assets'));
+        add_action('admin_notices',array(__CLASS__,'db_notice'));
     }
+    public static function db_notice(){if(!current_user_can('manage_options'))return;$error=get_option('sfc_db_error');if($error)echo '<div class="notice notice-error"><p>'.esc_html('Site Factory: миграция базы данных не завершена. Очередь приостановлена. Ошибка: '.$error).'</p></div>';}
     public static function assets($hook){if(strpos($hook,'sfc')===false)return;wp_enqueue_style('sfc-admin',SFC_URL.'assets/css/admin.css',array(),SFC_VERSION);}
     public static function menu(){
         add_menu_page('Site Factory','Site Factory','manage_options','sfc-dashboard',array(__CLASS__,'dashboard'),'dashicons-layout',26);
@@ -28,8 +30,10 @@ class SFC_Admin {
         echo '</div>';
     }
     public static function matrix(){
-        if(!current_user_can('manage_options'))return;$rows=SFC_Matrix::rows();$counts=array('CREATE'=>0,'MERGE'=>0,'SKIP'=>0);foreach($rows as $r)if(isset($counts[$r['decision']]))$counts[$r['decision']]++;
-        echo '<div class="wrap sfc-admin"><h1>Content Matrix</h1><p>Матрица не перебрасывает автоматически все комбинации в публикацию. Каждая строка проходит usefulness gate.</p><div class="sfc-chips">';foreach($counts as $k=>$v)echo '<span class="sfc-chip sfc-'.$k.'">'.esc_html($k).': '.esc_html($v).'</span>';echo '</div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="sfc_generate">';wp_nonce_field('sfc_action');
+        if(!current_user_can('manage_options'))return;$cursor=max(0,absint($_GET['sfc_cursor']??0));$run_token=sanitize_text_field(wp_unslash($_GET['sfc_run']??''));$rows=SFC_Matrix::rows(array('offset'=>$cursor,'limit'=>1000));$counts=array('CREATE'=>0,'MERGE'=>0,'SKIP'=>0);foreach($rows as $r)if(isset($counts[$r['decision']]))$counts[$r['decision']]++;
+        echo '<div class="wrap sfc-admin"><h1>Content Matrix</h1>';
+        if(isset($_GET['sfc_inserted']))echo '<div class="notice notice-info"><p>'.esc_html(sprintf('Очередь: добавлено %d, повторно поставлено %d, уже активно %d, ошибок %d.',absint($_GET['sfc_inserted']),absint($_GET['sfc_requeued']??0),absint($_GET['sfc_existing']??0),absint($_GET['sfc_failed']??0))).'</p></div>';
+        echo '<p>Матрица не перебрасывает автоматически все комбинации в публикацию. Каждая строка проходит usefulness gate.</p><div class="sfc-chips">';foreach($counts as $k=>$v)echo '<span class="sfc-chip sfc-'.$k.'">'.esc_html($k).': '.esc_html($v).'</span>';echo '</div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="sfc_generate"><input type="hidden" name="cursor" value="'.(int)$cursor.'"><input type="hidden" name="run_token" value="'.esc_attr($run_token).'">';wp_nonce_field('sfc_action');
         echo '<p><button class="button button-primary" type="submit">Поставить CREATE в очередь</button> <label>Лимит <input type="number" name="limit" value="250" min="1" max="1000" style="width:90px"></label></p><div style="overflow:auto;max-height:650px"><table class="widefat striped"><thead><tr><th>Тип</th><th>Entity</th><th>Lang</th><th>Decision</th><th>Причина</th></tr></thead><tbody>';
         foreach(array_slice($rows,0,1000) as $r){$entity=get_the_title($r['entity_id']);$rel=$r['related_id']?get_the_title($r['related_id']):'';echo '<tr><td>'.esc_html($r['page_type']).'</td><td>'.esc_html($entity.($rel?' · '.$rel:'' )).'</td><td>'.esc_html(strtoupper($r['lang'])).'</td><td><strong>'.esc_html($r['decision']).'</strong></td><td>'.esc_html($r['reason']).'</td></tr>';}
         echo '</tbody></table></div></form><div class="sfc-panel"><h2>Ручные Collection / Comparison</h2><p>Укажите ID товаров через запятую. Эти типы не проходят слепой гео-перебор.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="sfc_manual">'.wp_nonce_field('sfc_action','_wpnonce',true,false).'<p><select name="manual_type"><option value="collection">Collection</option><option value="comparison">Comparison</option></select> <select name="manual_lang"><option value="uk">UA</option><option value="ru">RU</option></select> <input class="regular-text" name="product_ids" placeholder="1,2,3"></p><p><button class="button" type="submit">Поставить в очередь</button></p></form></div></div>';
@@ -45,7 +49,7 @@ class SFC_Admin {
         echo '<div class="sfc-panel"><h2>Editorial Profile</h2><p>30 параметров являются управляющими сигналами для deterministic variation, а не «магическими уровнями текста».</p><table class="widefat striped"><thead><tr><th>Параметр</th><th>0–100</th></tr></thead><tbody>';foreach(SFC_Settings::profile_keys() as $key){echo '<tr><td>'.esc_html(ucwords(str_replace('_',' ',$key))).'</td><td><input type="range" min="0" max="100" name="sfc_settings[profile]['.esc_attr($key).']" value="'.(int)$settings['profile'][$key].'" oninput="this.nextElementSibling.value=this.value"><output>'.(int)$settings['profile'][$key].'</output></td></tr>';};echo '</tbody></table></div><p><button class="button button-primary">Сохранить</button></p></form></div>';
     }
     private static function row($name,$label,$value,$type='text',$extra=''){echo '<tr><th><label for="'.esc_attr($name).'">'.esc_html($label).'</label></th><td><input id="'.esc_attr($name).'" type="'.esc_attr($type).'" name="'.esc_attr($name).'" value="'.esc_attr($value).'" '.$extra.' class="regular-text"></td></tr>';}
-    public static function generate(){if(!current_user_can('manage_options'))wp_die('Нет прав');check_admin_referer('sfc_action');$limit=max(1,min(1000,absint($_POST['limit']??250)));$count=SFC_Matrix::enqueue_create_jobs($limit);wp_safe_redirect(add_query_arg(array('page'=>'sfc-matrix','sfc_added'=>$count),admin_url('admin.php')));exit;}
+    public static function generate(){if(!current_user_can('manage_options'))wp_die('Нет прав');check_admin_referer('sfc_action');if(!SFC_DB::schema_ready())wp_die('Схема Site Factory несовместима; очередь приостановлена.');$limit=max(1,min(1000,absint($_POST['limit']??250)));$cursor=max(0,absint($_POST['cursor']??0));$token=sanitize_text_field(wp_unslash($_POST['run_token']??''));$result=SFC_Matrix::enqueue_create_jobs($limit,$cursor,$token);wp_safe_redirect(add_query_arg(array('page'=>'sfc-matrix','sfc_run'=>$result['run_token'],'sfc_cursor'=>$result['next_cursor'],'sfc_inserted'=>$result['inserted'],'sfc_requeued'=>$result['requeued'],'sfc_existing'=>$result['already_exists'],'sfc_failed'=>$result['failed'],'sfc_more'=>$result['has_more']?1:0),admin_url('admin.php')));exit;}
 
     public static function manual(){
         if(!current_user_can('manage_options'))wp_die('Нет прав');check_admin_referer('sfc_action');
@@ -53,8 +57,8 @@ class SFC_Admin {
         $ids=array_values(array_unique(array_filter(array_map('absint',preg_split('/[^0-9]+/',(string)($_POST['product_ids']??''),-1,PREG_SPLIT_NO_EMPTY)))));
         if(count($ids)<2 || !in_array($type,array('collection','comparison'),true)){wp_safe_redirect(admin_url('admin.php?page=sfc-matrix'));exit;}
         $signature=hash('sha256',implode('|',array($type,implode(',',$ids),0,$lang)));
-        SFC_Queue::enqueue('generate_page',array('page_type'=>$type,'entity_id'=>$ids,'related_id'=>0,'lang'=>$lang,'query'=>''));
-        wp_safe_redirect(add_query_arg(array('page'=>'sfc-matrix','manual'=>'queued'),admin_url('admin.php')));exit;
+        $queued=SFC_Queue::enqueue_result('generate_page',array('page_type'=>$type,'entity_id'=>$ids,'related_id'=>0,'lang'=>$lang,'query'=>''));
+        wp_safe_redirect(add_query_arg(array('page'=>'sfc-matrix','manual'=>$queued['status']),admin_url('admin.php')));exit;
     }
     public static function retry(){if(!current_user_can('manage_options'))wp_die('Нет прав');check_admin_referer('sfc_action');SFC_Queue::retry_failed();wp_safe_redirect(admin_url('admin.php?page=sfc-queue'));exit;}
     public static function seed(){if(!current_user_can('manage_options'))wp_die('Нет прав');check_admin_referer('sfc_action');self::seed_geo();wp_safe_redirect(admin_url('admin.php?page=sfc-dashboard'));exit;}
