@@ -14,7 +14,8 @@ class UWSB_Planner {
             $name_uk=sanitize_text_field($raw['name_uk']??'');
             $name_ru=sanitize_text_field($raw['name_ru']??'');
             if($name_uk===''&&$name_ru==='') continue;
-            $key=sanitize_title($raw['key']??($name_uk?:$name_ru));
+            $seed=$raw['key']??($raw['sku']??'');
+            $key=$seed!==''?sanitize_key(strtolower((string)$seed)):sanitize_title($name_uk?:$name_ru);
             if($key==='') $key='product-'.($i+1);
             $item=['key'=>$key];
             foreach(['uk','ru'] as $lang){
