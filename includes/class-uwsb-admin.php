@@ -66,8 +66,8 @@ class UWSB_Admin {
             'products'=>[self::demo_product()],
             'contacts_uk'=>"Telegram: @example\nEmail: demo@example.com",
             'contacts_ru'=>"Telegram: @example\nEmail: demo@example.com",
-            'geo_all_cities'=>false,
-            'selected_cities'=>['kyiv','lviv','odesa'],
+            'geo_all_cities'=>true,
+            'selected_cities'=>[],
             'geo_index_all'=>false,
             'editorial'=>UWSB_Profiles::defaults('businessman'),
         ];
